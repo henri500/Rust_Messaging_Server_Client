@@ -1,4 +1,4 @@
-use std::{io::{Error, Read}, net::{TcpListener, TcpStream}, thread};
+use std::{io::{Error, Read, Write}, net::{TcpListener, TcpStream}, thread};
 
 fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
     println!("\nIncoming connection from: {}", stream.peer_addr()?);
@@ -24,7 +24,10 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
 
         println!("Message received from {:} : {}", stream.peer_addr()?, String::from_utf8(message).unwrap());
         
+        //stream.write(&buffer[..nb_message_bytes])?; //ecrit dans le stream, ecrit au client (meme client, meme message)
+
         message = Vec::new();
+        buffer = [0; 12];
     }
 }
 fn main() {
