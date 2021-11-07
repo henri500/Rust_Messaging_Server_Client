@@ -16,9 +16,9 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
             return Ok(()); //pour éviter la boucle infinie
         }
 
-        for byte in buffer {
-            if byte != '\n' as u8 {
-                message.push(byte);
+        for byte in buffer.iter() {
+            if *byte != '\n' as u8 {
+                message.push(*byte);
             }
         }
 
