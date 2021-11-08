@@ -1,0 +1,66 @@
+
+CREATE DATABASE `DB` DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+
+USE DB;
+
+CREATE TABLE CLIENT(
+ID BIGINT NOT NULL AUTO_INCREMENT,
+NOM VARCHAR(20) NOT NULL,
+SEXE CHAR(1) NOT NULL,/*H, F*/
+PORT BIGINT NOT NULL,
+PRIMARY KEY(ID)
+) ENGINE=InnoDB;
+
+struct CLIENT {
+    _id: i32,
+    NOM: String,
+    SEXE: String,
+    PORT: i32
+}
+
+----------------------------------------------------------------------------------------
+
+use postgres::{Client, NoTls, Error};
+use std::collections::HashMap;
+
+
+struct Author {
+    _id: i32,
+    name: String,
+    country: String
+}
+
+fn main() -> Result<(), Error> {
+    let mut client = Client::connect("postgresql://postgres:postgres@localhost/DB", 
+                                    NoTls)?;
+    
+    let mut authors = HashMap::new();
+    authors.insert(String::from("Chinua Achebe"), "Nigeria");
+    authors.insert(String::from("Rabindranath Tagore"), "India");
+    authors.insert(String::from("Anita Nair"), "India");
+
+    for (key, value) in &authors {
+        let author = Author {
+            _id: 0,
+            name: key.to_string(),
+            country: value.to_string()
+        };
+
+        client.execute(
+                "INSERT INTO author (name, country) VALUES ($1, $2)",
+                &[&author.name, &author.country],
+        )?;
+    }
+
+    for row in client.query("SELECT id, name, country FROM author", &[])? {
+        let author = Author {
+            _id: row.get(0),
+            name: row.get(1),
+            country: row.get(2),
+        };
+        println!("Author {} is from {}", author.name, author.country);
+    }
+
+    Ok(())
+
+}
