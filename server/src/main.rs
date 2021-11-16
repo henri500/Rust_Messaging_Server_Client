@@ -1,48 +1,63 @@
-use std::{io::{Error, Read, Write}, net::{TcpListener, TcpStream}, thread};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
+use std::thread;
 
-fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
-    println!("\nIncoming connection from: {}", stream.peer_addr()?);
-    
-    let mut buffer = [0; 12];
-    let mut message: Vec<u8> = Vec::new();
-
-    loop {
-        let nb_message_bytes= stream.read(&mut buffer)?; //lis le message qui est dans le stream dans le buffer -> recupere le message du client
-        //println!("NB_MESSAGES_BYTES: {}", nb_message_bytes);
-        //println!("BUFFER: {:?}", &buffer[..nb_message_bytes]);
-        
-        if nb_message_bytes == 0 { //lorsque le client se deconnecte, il envoie un message vide
-            println!("Deconnection from: {}", stream.peer_addr()?);
-            return Ok(()); //pour éviter la boucle infinie
-        }
-
-        for byte in buffer.iter() {
-            if *byte != '\n' as u8 {
-                message.push(*byte);
-            }
-        }
-
-        println!("Message received from {:} : {}", stream.peer_addr()?, String::from_utf8(message).unwrap());
-        
-        //stream.write(&buffer[..nb_message_bytes])?; //ecrit dans le stream, ecrit au client (meme client, meme message)
-
-        message = Vec::new();
-        buffer = [0; 12];
-    }
-}
 fn main() {
     let listener = TcpListener::bind("localhost:8888").expect("Could not bind");
+    listener.set_nonblocking(true).expect("failed to initialize non-blocking");
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                thread::spawn(move || {
-                    handle_client(stream).unwrap();
+    let mut clients = vec![];
+    let (tx, rx) = mpsc::channel::<String>();
+
+    loop {
+        match listener.accept() {
+            Ok((mut stream, addr)) => { //cas ou un client se connecte au serveur
+                println!("Incoming connection from: {}", addr);
+                
+                let tx = tx.clone();
+                
+                clients.push(stream.try_clone().expect("Failed to clone"));
+                
+                thread::spawn(move || loop {
+                    let mut buffer = [0; 32]; //va contenir le message recu du client, celui-ci peut contenir que 32 caracteres max
+                    
+                    match stream.read(&mut buffer) {
+                        Ok(0) => { //deconnexion du client
+                            println!("Deconnection from: {}", addr);
+                            break;
+                        },
+                        Ok(_) => { //contient toutes les autres expressions, cas ou il y a un message dans le buffer
+                            let mut message = Vec::new();
+
+                            for byte in buffer.iter() { //copier strictement que le message
+                                if *byte != 0 {
+                                    message.push(*byte);
+                                }
+                            }
+
+                            let message = String::from_utf8(message).expect("Invalid utf8 message");
+    
+                            println!("Message received from {}: {:?}", addr, message);
+                            tx.send(message).expect("Failed to send message to rx");
+                        }
+                        Err(_) => {}
+                    }
                 });
+            }         
+            Err(_) => {}
+        }
+
+        match rx.try_recv() {
+            Ok(message) => { //cas ou le client recoit le message envoye
+                for mut client in clients.iter() {
+                    let mut buffer = message.clone().into_bytes();
+
+                    buffer.resize(32, 0); 
+                    client.write(&buffer).expect("Writing to socket failed"); 
+                }
             }
-            Err(e) => {
-                println!("Failed: {}", e)
-            }
+            Err(_) => {}
         }
     }
 }
