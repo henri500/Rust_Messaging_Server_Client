@@ -1,25 +1,16 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::channel;
-use std::thread::{sleep, spawn};
+use std::thread::{spawn};
 
 use aes::Aes256;
 
-use block_modes::{
-    BlockMode,
-    Cbc,
-    block_padding::Pkcs7};
-
-use rand::{
-    RngCore,
-    rngs::OsRng
-};
+use block_modes::{BlockMode,Cbc,block_padding::Pkcs7};
 
 const LOCAL: &str = "127.0.0.1:6000";
 const MAX_MSG_SIZE: usize = 6969;
-const IV_LEN: usize = 16;
 const SERVER_PASSWD: &[u8; 32] = b"12345678901234567890123556789011";
-const iv: &[u8; 16] = b"5551234567890145";
+const IV: &[u8; 16] = b"5551234567890145";
 
 struct User {
     ip: String,
@@ -27,21 +18,17 @@ struct User {
     authenticated: bool,
 }
 
-fn idle() {
-    sleep(::std::time::Duration::from_millis(100));
-}
-
 fn connection_handling() -> TcpListener{
     let server =
         TcpListener::bind(LOCAL)
-            .expect("Error while binding listener");
+            .unwrap();
     server
         .set_nonblocking(true)
         .expect("failed to initialize non-blocking");
     return server;
 }
 
-fn add_client(mut clients: Vec<TcpStream>, new_user: &TcpStream) -> Vec<TcpStream> {
+fn register_client(mut clients: Vec<TcpStream>, new_user: &TcpStream) -> Vec<TcpStream> {
     // add the newly connected client to the array
 
     clients.push(new_user
@@ -63,13 +50,11 @@ fn broadcast_msg(clients: &Vec<TcpStream>, u: &mut User) {
 }
 
 fn send_message_to_client(client: &mut TcpStream, u: &mut User) {
-    // Used to send to a specific client
-
     u.data.resize(MAX_MSG_SIZE, 0);
     client.write_all(&u.data).ok();
 }
 
-fn handle_message_received(socket: &mut TcpStream, addr: &SocketAddr) -> (Vec<u8>, bool) {
+fn handling_incoming_msg(socket: &mut TcpStream, addr: &SocketAddr) -> (Vec<u8>, bool) {
     let mut buff = vec![0; MAX_MSG_SIZE];
 
     match socket.read_exact(&mut buff) {
@@ -77,6 +62,7 @@ fn handle_message_received(socket: &mut TcpStream, addr: &SocketAddr) -> (Vec<u8
             let msg = buff.into_iter().collect::<Vec<_>>();
             return (msg, false);
         },
+
         Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
         Err(x) => {
             println!("Connection closed with: {}, {}", addr, x);
@@ -108,7 +94,7 @@ fn unpacking(data: &mut Vec<u8>) -> Vec<u8> {
 fn msg_crypt(msg: Vec<u8>, key: &Vec<u8>) -> Vec<u8>{
     type Aes256Cbc = Cbc<Aes256, Pkcs7>; // Aliasing for. similar to import <module> as in python
 
-    let cipher = match Aes256Cbc::new_from_slices(&key, iv) {
+    let cipher = match Aes256Cbc::new_from_slices(&key, IV) {
         Ok(cipher) => cipher,
         Err(err) => panic!("{}", err)
     };
@@ -159,7 +145,7 @@ fn main() {
     loop {
         if let Ok((mut socket, addr)) = server.accept() {
             let tx = tx.clone();
-            clients = add_client(clients, &socket);
+            clients = register_client(clients, &socket);
 
             spawn(move || loop {
                 let mut u = User{
@@ -169,7 +155,7 @@ fn main() {
                 };// retaining User data
                 let server_password = SERVER_PASSWD.to_vec();
                 if !u.authenticated {
-                    let (data, _) = handle_message_received(&mut socket, &addr);
+                    let (data, _) = handling_incoming_msg(&mut socket, &addr);
                     let (_, auth_passed) = msg_decrypt(data, &server_password);
                     if auth_passed {
                         println!("New client: {} connected and successfully authenticated", addr);
@@ -181,14 +167,14 @@ fn main() {
                         authenticated = true;
                         continue;
                     } else {
-                        println!("Client {} failed password challenge", addr);
+                        println!("Client {} sent a wrong password", addr);
                         u.data = b"Message from server :\n\tIncorect password, please try again".to_vec();
                         send_message_to_client(&mut socket, &mut u);
                         break;
                     }
                 }
 
-                let (msg , disconnect) = handle_message_received(&mut socket, &addr);
+                let (msg , disconnect) = handling_incoming_msg(&mut socket, &addr);
 
                 if !disconnect {
                     let (msg, _) = msg_decrypt(msg, &server_password);
@@ -196,7 +182,7 @@ fn main() {
                     match tx.send(u) {
                         Ok(_) => {},
                         Err(err) => {
-                            println!("Error sending message to channel : {:?}", err);
+                            println!("Error while sending message to channel : {:?}", err);
                         }
                     }
                 } else { break };
@@ -209,6 +195,15 @@ fn main() {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn check_pass_len() {
+        assert_eq!(super::SERVER_PASSWD.len(), 32);
+    }
+    #[test]
+    fn check_iv_len() {
+        assert_eq!(super::IV.len(), 16);
+    }
 
-
-
+}

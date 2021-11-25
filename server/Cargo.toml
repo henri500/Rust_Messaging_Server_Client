@@ -7,8 +7,5 @@ authors=["henri500, CelineK","ZNAIBER"]
 
 [dependencies]
 aes="0.7.5"
-rand = "0.8.4"
-rand_core = "0.6.3"
 hex="0.4.3"
 block-modes="0.8.1"
-hex-literal = "0.3.4"

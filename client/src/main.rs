@@ -2,24 +2,20 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::{self, TryRecvError, Sender};
 use std::thread;
-use std::time::Duration;
 use std::str::from_utf8;
-use rand::rngs::OsRng;
 
 use aes::Aes256;
 use block_modes::{BlockMode, Cbc};
 use block_modes::block_padding::Pkcs7;
-use rand::RngCore;
 
 const LOCAL: &str = "127.0.0.1:6000";
 const MSG_SIZE: usize = 6969;
-const IV_LEN: usize = 16;
-const iv: &[u8; 16] = b"5551234567890145";
+const IV: &[u8; 16] = b"5551234567890145";
 
 fn connection_handling() -> TcpStream {
     let client =
         TcpStream::connect(LOCAL)
-            .expect("Stream failed to connect");
+            .unwrap();//("Stream failed to connect");
     client
         .set_nonblocking(true)
         .expect("failed to initiate non-blocking");
@@ -43,7 +39,7 @@ fn write_message(tx: &Sender<String>) -> String {
     }
 }
 
-fn handle_incomming_msg(client: &mut TcpStream, first_co: &mut bool, key: &Vec<u8>) -> bool{
+fn handle_incoming_msg(client: &mut TcpStream, first_co: &mut bool, key: &Vec<u8>) -> bool{
     let mut buff = vec![0; MSG_SIZE];
     match client.read_exact(&mut buff) {
         Ok(_) => {
@@ -57,7 +53,7 @@ fn handle_incomming_msg(client: &mut TcpStream, first_co: &mut bool, key: &Vec<u
                     if !*first_co {
                         println!("-> {}", data);
                     } else {
-                        println!("Connected to -> {} | as -> {}", LOCAL, data); // edode : receive IP from server
+                        println!("Connected to -> {} | as -> {}", LOCAL, data);
                         *first_co = false;
                     }
                 }
@@ -66,6 +62,7 @@ fn handle_incomming_msg(client: &mut TcpStream, first_co: &mut bool, key: &Vec<u
                 }
             };
         },
+
         Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
         Err(_) => {
             println!("connection with server was severed");
@@ -82,11 +79,10 @@ fn send_message(server: &mut TcpStream, mut msg: Vec<u8>) {
         .expect("writing to socket failed");
 }
 
-
 fn encrypt_message(msg: Vec<u8>, key: &Vec<u8>) -> Vec<u8>{
     type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
-    let cipher = match Aes256Cbc::new_from_slices(&key, iv) {
+    let cipher = match Aes256Cbc::new_from_slices(&key, IV) {
         Ok(cipher) => cipher,
         Err(err) => panic!("{}", err)
     };
@@ -104,10 +100,8 @@ fn encrypt_message(msg: Vec<u8>, key: &Vec<u8>) -> Vec<u8>{
     return enc_data.to_owned();
 }
 
-fn remove_trailing_zeros(data: &mut Vec<u8>) -> Vec<u8> {
+fn unpacking(data: &mut Vec<u8>) -> Vec<u8> {
     // Used to remove the zeros at the end of the received encrypted message
-    // but not inside the message (purpose of the 'keep_push' var
-
     let mut transit:Vec<u8> = vec![];
     let mut res:Vec<u8> = vec![];
     let mut keep_push = false;
@@ -134,17 +128,16 @@ fn decrypt_msg_aes(mut msg: Vec<u8>, key: &Vec<u8>) -> Vec<u8> {
         Err(err) => panic!("{}", err)
     };
 
-    msg = remove_trailing_zeros(&mut msg);
+    msg = unpacking(&mut msg);
         match cipher.clone().decrypt(&mut msg) {
             Ok(decrypted_data) => {
                 return decrypted_data.to_vec();
             },
             Err(_) => {
-                    println!("Wrong Password as been entered");
+                    println!("Wrong Password. Try again:");
                     return b"".to_vec();
             }
     }
-    return b"".to_vec();
 }
 
 fn encrypt_and_send_message(server: &mut TcpStream, msg: Vec<u8>, key: &Vec<u8>) {
@@ -158,7 +151,7 @@ fn send_pass(server: &mut TcpStream) -> Vec<u8> {
     println!("Server's password : ");
     io::stdin()
         .read_line(&mut server_pass_and_key)
-        .expect("Failed to iput");
+        .expect("Failed to to get input");
     server_pass_and_key.pop();
 
     let enc_pass = encrypt_message(server_pass_and_key.clone().into_bytes(),  &server_pass_and_key.clone().into_bytes(), );
@@ -175,7 +168,7 @@ fn main() {
 
     thread::spawn(move ||
         loop {
-            let disconnect = handle_incomming_msg(&mut server, &mut first_co, &key);
+            let disconnect = handle_incoming_msg(&mut server, &mut first_co, &key);
             if disconnect { break }
             match rx.try_recv() {
                 Err(TryRecvError::Empty) => ( continue ),
@@ -188,4 +181,12 @@ fn main() {
     loop {
         write_message(&tx);
     }
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn check_iv_len() {
+        assert_eq!(super::IV.len(), 16);
+    }
+
 }
